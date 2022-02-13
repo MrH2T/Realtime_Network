@@ -44,7 +44,8 @@ namespace win_control{
     void sendQuitMessage();
     namespace input_record
 	{
-		void keyHandler(int);
+		void keyDownHandler(int);
+        void keyUpHandler(int);
 		void getInput();
 	}
 }

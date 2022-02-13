@@ -83,7 +83,10 @@ namespace win_control{
             {
                 if (ms_rec.Event.KeyEvent.bKeyDown)
                 {
-                    win_control::input_record::keyHandler(ms_rec.Event.KeyEvent.wVirtualKeyCode);
+                    win_control::input_record::keyDownHandler(ms_rec.Event.KeyEvent.wVirtualKeyCode);
+                }
+                if(!ms_rec.Event.KeyEvent.bKeyDown){
+                    win_control::input_record::keyUpHandler(ms_rec.Event.KeyEvent.wVirtualKeyCode);
                 }
             }
         }

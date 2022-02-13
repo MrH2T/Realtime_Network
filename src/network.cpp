@@ -7,8 +7,8 @@
 #include"asio.hpp"
 #include"wincontrol.hpp"
 
-const std::string version="0.0.2";
-
+const std::string version="0.0.3";
+const int gameTick = 50;
 
 void win_control::cls()
 {
@@ -17,7 +17,7 @@ void win_control::cls()
     for (short i = 0; i < 40; i++)
     {
         goxy(i,0);
-        std::cout<<"                                                                                ";
+        std::cout<<"                                                                                  ";
     }
     win_control::setColor(win_control::Color::c_WHITE,win_control::Color::c_BLACK);
     win_control::goxy(0,0);
@@ -528,17 +528,30 @@ void win_control::sendQuitMessage(){
     gameRunning=false;
 }
 namespace key_handling{
-    void up(){
-        sendMessage(Client::sock,"up;");
+    bool onPress[128];
+    void dup(){
+        onPress['W']=1;
     }
-    void dn(){
-        sendMessage(Client::sock,"dn;");
+    void uup(){
+        onPress['W']=0;
     }
-    void lf(){
-        sendMessage(Client::sock,"lf;");
+    void ddn(){
+        onPress['S']=1;
     }
-    void rt(){
-        sendMessage(Client::sock,"rt;");
+    void udn(){
+        onPress['S']=0;
+    }
+    void dlf(){
+        onPress['A']=1;
+    }
+    void ulf(){
+        onPress['A']=0;
+    }
+    void drt(){
+        onPress['D']=1;
+    }
+    void urt(){
+        onPress['D']=0;
     }
     void esc(){
         win_control::sendQuitMessage();
@@ -549,23 +562,27 @@ namespace key_handling{
     }
 }
 
-void win_control::input_record::keyHandler(int keyCode){
+void win_control::input_record::keyDownHandler(int keyCode){
     if(mode==1)return;
     switch(keyCode){
         case 'W':{
-            key_handling::up();
+            key_handling::dup();
+            key_handling::udn();
             break;
         }
         case 'S':{
-            key_handling::dn();
+            key_handling::ddn();
+            key_handling::uup();
             break;
         }
         case 'A':{
-            key_handling::lf();
+            key_handling::dlf();
+            key_handling::urt();
             break;
         }
         case 'D':{
-            key_handling::rt();
+            key_handling::drt();
+            key_handling::ulf();
             break;
         }
         case 'R':{
@@ -574,6 +591,28 @@ void win_control::input_record::keyHandler(int keyCode){
         }
         case VK_ESCAPE:{
             key_handling::esc();
+            break;
+        }
+        default:return;
+    }
+}
+void win_control::input_record::keyUpHandler(int keyCode){
+    if(mode==1)return;
+    switch(keyCode){
+        case 'W':{
+            key_handling::uup();
+            break;
+        }
+        case 'S':{
+            key_handling::udn();
+            break;
+        }
+        case 'A':{
+            key_handling::ulf();
+            break;
+        }
+        case 'D':{
+            key_handling::urt();
             break;
         }
         default:return;
@@ -588,11 +627,24 @@ int main(){
     if(mode==1)
     {
         Server::startServer();
-        
     }
     else mode=2,Client::startClient();
+    std::thread listenKey=std::thread([&]()->void{
+        while(gameRunning){
+            win_control::input_record::getInput();
+        }
+    });
+
+    int ticks=0;
+
     while(gameRunning){
-        win_control::input_record::getInput();
+        if(key_handling::onPress['W'])sendMessage(Client::sock,"up;");
+        if(key_handling::onPress['S'])sendMessage(Client::sock,"dn;");
+        if(key_handling::onPress['A'])sendMessage(Client::sock,"lf;");
+        if(key_handling::onPress['D'])sendMessage(Client::sock,"rt;");
+        
+        ticks++;
+        win_control::sleep(gameTick);
     }
     gameRunning=false;
     std::cout<<gameRunning;
