@@ -13,7 +13,8 @@ void win_control::cls()
     win_control::goxy(0, 0);
     for (short i = 0; i < 40; i++)
     {
-        std::cout << "                                                                                \n";
+        goxy(i,0);
+        std::cout<<"                                                                                ";
     }
     win_control::setColor(win_control::Color::c_WHITE,win_control::Color::c_BLACK);
     win_control::goxy(0,0);
@@ -133,6 +134,7 @@ namespace Server{
                     
                     std::string usersInfo="uinf;";
                     for(auto &cln:clients){
+                        if(cln->closed)continue;
                         usersInfo+=info_to_string(cln);
                     }
                     sendMessage(cl->sock,usersInfo);
@@ -149,37 +151,55 @@ namespace Server{
                             len = cl->sock.read_some(asio::buffer(buf), err);
                             std::string str(buf.data());str.resize(len);
                             std::cout<<"SB "<<cl->id<<" send "<<str<<std::endl;
-                            if(str=="quit"){
-                                std::cout<<"SB "<<cl->id<<" is leaving\n";
-                                cl->sock.close();
-                                cl->closed=true;
-                                colorVis[cl->color]=false;
 
-                                //del player from the map
-                                Game::delPlayer(cl);
-                                
-                                sendToAll("quit;"+std::to_string(cl->id)+";");
-                                
-                                return;
-                            }
-                            else{
-                                std::string rec=str.substr(0,2);
-                                bool ok=true;
-                                int nx=cl->x,ny=cl->y,tx=nx,ty=ny;
-                                if(rec=="up"){tx--;if(!Game::checkLegal(nx-1,ny))ok=false;}
-                                else if(rec=="dn"){tx++;if(!Game::checkLegal(nx+1,ny))ok=false;}
-                                else if(rec=="lf"){ty--;if(!Game::checkLegal(nx,ny-1))ok=false;}
-                                else if(rec=="rt"){ty++;if(!Game::checkLegal(nx,ny+1))ok=false;}
-                                if(ok){
-                                    std::cout<<"SB HAHA "<<nx<<" "<<ny<<";"<<tx<<" "<<ty<<std::endl;
-                                    //move player
+                            auto solveCmd=([&](std::string ss)->bool{
+                                if(ss=="")return true;
+                                if(ss=="quit;"){
+                                    std::cout<<"SB "<<cl->id<<" is leaving\n";
+                                    // while(1);
+                                    cl->sock.close();
+                                    cl->closed=true;
+                                    colorVis[cl->color]=false;
+
+                                    //del player from the map
                                     Game::delPlayer(cl);
-                                    cl->x=tx,cl->y=ty;
-                                    Game::putPlayer(cl);
-
-                                    sendToAll(str+";"+std::to_string(cl->id)+";");
+                                    
+                                    sendToAll("quit;"+std::to_string(cl->id)+";");
+                                    
+                                    return false;
                                 }
+                                else{
+                                    std::string rec=ss.substr(0,2);
+                                    bool ok=true;
+                                    int nx=cl->x,ny=cl->y,tx=nx,ty=ny;
+                                    if(rec=="up"){tx--;if(!Game::checkLegal(nx-1,ny))ok=false;}
+                                    else if(rec=="dn"){tx++;if(!Game::checkLegal(nx+1,ny))ok=false;}
+                                    else if(rec=="lf"){ty--;if(!Game::checkLegal(nx,ny-1))ok=false;}
+                                    else if(rec=="rt"){ty++;if(!Game::checkLegal(nx,ny+1))ok=false;}
+                                    if(ok){
+                                        std::cout<<"SB HAHA "<<nx<<" "<<ny<<";"<<tx<<" "<<ty<<std::endl;
+                                        //move player
+                                        Game::delPlayer(cl);
+                                        cl->x=tx,cl->y=ty;
+                                        Game::putPlayer(cl);
+                                        sendToAll(rec+";"+std::to_string(cl->id)+";");
+                                    }
+                                }
+                                return true;
+                            });
+                            str+="sb";len+=2;
+                            std::string tmp="";
+                            for(int i=0;i<len;i++){
+                                if((str[i]>='a')&&(str[i]<='z')){
+                                    if(i&&str[i-1]==';'||i==0){
+
+                                        if(!solveCmd(tmp))return;
+                                        tmp="";
+                                    }
+                                }
+                                tmp+=str[i];
                             }
+                            
                         }
                     });
                     recv.detach();//? i dont know
@@ -224,12 +244,15 @@ namespace Client{
         painting=true;
         win_control::goxy(0,0);
         for(int i=0;i<40;i++){
-            // win_control::goxy(i,0);
+            win_control::goxy(i,0);
             for(int j=0;j<40;j++){
+                // win_control::setColor(win_control::Color::c_WHITE,win_control::Color::c_BLACK);
+                // std::putchar(' '),std::putchar(' ');
                 win_control::setColor(colors[Game::gmap[i][j]],colors[Game::gmap[i][j]]);
-                std::cout<<"  ";
+                std::putchar(' '),std::putchar(' ');
+
             }
-            std::cout<<std::endl;
+            // if(i!=39)std::cout<<std::endl;
         }
         painting=false;
     }
@@ -239,7 +262,7 @@ namespace Client{
         painting=true;
         win_control::goxy(x,2*y);
         win_control::setColor(colors[Game::gmap[x][y]],colors[Game::gmap[x][y]]);
-        std::cout<<"  ";
+        std::putchar(' '),std::putchar(' ');
         painting=false;
     }
 
@@ -264,103 +287,133 @@ namespace Client{
             for(;gameRunning;){
                 len=sock.read_some(asio::buffer(buf),err);
                 std::string str=std::string(buf.data());str.resize(len);
-                if(str=="shutdown"){
-                    win_control::cls();
-                    sock.close();
-                    std::cout<<"Server Shutdown\n";
-                    win_control::sleep(1000);
-                    gameRunning=false;
-                    exit(0);
-                }
-                else if(str.substr(0,4)=="quit"){
-                    int val=0,tid=0;
-                    for(int i=5;i<len;i++){
-                        if(str[i]==';'){
-                            tid=val;
-                            break;
-                        }else{
-                            val=val*10+str[i]-'0';
-                        }
+                // while(painting);
+                // painting=true;
+                // win_control::setColor(win_control::Color::c_WHITE,win_control::Color::c_BLACK);
+                // win_control::goxy(2,90);
+                // std::cout<<str;
+                // painting=false;
+                auto solveCmd=([&](std::string ss)->void{
+                    // win_control::goxy(20,90);
+                    // std::cout<<ss<<"sfhaiud\naiosdj";
+                    if(ss=="")return;
+                    if(ss=="shutdown;"){
+                        win_control::cls();
+                        sock.close();
+                        std::cout<<"Server Shutdown\n";
+                        win_control::sleep(1000);
+                        gameRunning=false;
+                        exit(0);
                     }
-                    for(auto &pl:Game::pls){
-                        if(pl.id==tid){
-
-                            //del the player from the map
-                            Game::delPlayer(pl);
-                            pl.quit=true;
-
-                            break;
-                        }
-                    }
-                }else if(str.substr(0,4)=="idcl"){
-                    int val=0,ind=0;
-                    for(int i=5;i<len;i++){
-                        if(str[i]==';'){
-                            if(ind==0)id=val;
-                            else if(ind==1)color=val;
-                            val=0,ind++;
-                        }else{
-                            val=val*10+str[i]-'0';
-                        }
-                    }
-                }else if(str.substr(0,4)=="uinf"){
-                    std::cout<<str<<std::endl;
-                    int ind=0,val=0;Game::plcnt=1;
-                    for(int i=5;i<len;i++){
-                        if(str[i]==';'){
-                            if(ind%4==0)Game::pls[Game::plcnt].id=val;
-                            else if(ind%4==1)Game::pls[Game::plcnt].color=val;
-                            else if(ind%4==2)Game::pls[Game::plcnt].x=val;
-                            else if(ind%4==3){
-                                Game::pls[Game::plcnt].y=val;
-                                
-                                //put the player on the map
-                                Game::putPlayer(Game::pls[Game::plcnt]);
-                                
-                                drawAt(Game::pls[Game::plcnt].x,Game::pls[Game::plcnt].y);
-
-                                Game::plcnt++;
+                    else if(ss.substr(0,4)=="quit"){
+                        int val=0,tid=0;
+                        for(int i=5;i<len;i++){
+                            if(ss[i]==';'){
+                                tid=val;
+                                break;
+                            }else{
+                                val=val*10+ss[i]-'0';
                             }
-                            ind++,val=0;
-                        }else{
-                            val=val*10+str[i]-'0';
+                        }
+                        for(auto &pl:Game::pls){
+                            if(pl.id==tid){
+
+                                //del the player from the map
+                                Game::delPlayer(pl);
+                                drawAt(pl.x,pl.y);
+                                pl.quit=true;
+
+                                break;
+                            }
+                        }
+                    }else if(ss.substr(0,4)=="idcl"){
+                        int val=0,ind=0;
+                        for(int i=5;i<len;i++){
+                            if(ss[i]==';'){
+                                if(ind==0)id=val;
+                                else if(ind==1)color=val;
+                                val=0,ind++;
+                            }else{
+                                val=val*10+ss[i]-'0';
+                            }
+                        }
+                    }else if(ss.substr(0,4)=="uinf"){
+                        // std::cout<<ss<<std::endl;
+                        int ind=0,val=0;Game::plcnt=1;
+                        for(int i=5;i<len;i++){
+                            if(ss[i]==';'){
+                                if(ind%4==0)Game::pls[Game::plcnt].id=val;
+                                else if(ind%4==1)Game::pls[Game::plcnt].color=val;
+                                else if(ind%4==2)Game::pls[Game::plcnt].x=val;
+                                else if(ind%4==3){
+                                    Game::pls[Game::plcnt].y=val;
+                                    
+                                    //put the player on the map
+                                    Game::putPlayer(Game::pls[Game::plcnt]);
+                                    
+                                    drawAt(Game::pls[Game::plcnt].x,Game::pls[Game::plcnt].y);
+
+                                    Game::plcnt++;
+                                }
+                                ind++,val=0;
+                            }else{
+                                val=val*10+ss[i]-'0';
+                            }
+                        }
+                    }else if(ss.substr(0,4)=="join"){
+                        int ind=0,val=0;
+                        for(int i=5;i<len;i++){
+                            if(ss[i]==';'){
+                                if(ind%4==0)Game::pls[Game::plcnt].id=val;
+                                else if(ind%4==1)Game::pls[Game::plcnt].color=val;
+                                else if(ind%4==2)Game::pls[Game::plcnt].x=val;
+                                else if(ind%4==3){
+                                    Game::pls[Game::plcnt].y=val;
+                                    Game::putPlayer(Game::pls[Game::plcnt]);
+                                    drawAt(Game::pls[Game::plcnt].x,Game::pls[Game::plcnt].y);
+                                    Game::plcnt++;
+                                }
+                                ind++,val=0;
+                            }else{
+                                val=val*10+ss[i]-'0';
+                            }
+                        }
+                    }else{
+                        std::string rec=ss.substr(0,2);
+                        
+                        
+                        int val=0,tid=0;
+                        for(int i=3;i<len;i++){
+                            if(ss[i]==';'){
+                                tid=val;
+                                break;
+                            }
+                            else{
+                                val=val*10+ss[i]-'0';
+                            }
+                        }
+                        Game::Player *tpl=NULL;
+                        for(int i=0;i<Game::plcnt;i++){
+                            if(Game::pls[i].id==tid){tpl=&Game::pls[i];break;}
+                        }
+                        Game::delPlayer(*tpl),drawAt(tpl->x,tpl->y);
+                        if(rec=="up")tpl->x--;
+                        if(rec=="dn")tpl->x++;
+                        if(rec=="lf")tpl->y--;
+                        if(rec=="rt")tpl->y++;
+                        Game::putPlayer(*tpl),drawAt(tpl->x,tpl->y);
+                    }
+                });
+                str+="sb";len+=2;
+                std::string tmp="";
+                for(int i=0;i<len;i++){
+                    if((str[i]>='a')&&(str[i]<='z')){
+                        if(i&&str[i-1]==';'||i==0){
+                            solveCmd(tmp);
+                            tmp="";
                         }
                     }
-                }else if(str.substr(0,4)=="join"){
-                    int ind=0,val=0;
-                    for(int i=5;i<len;i++){
-                        if(str[i]==';'){
-                            if(ind%4==0)Game::pls[Game::plcnt].id=val;
-                            else if(ind%4==1)Game::pls[Game::plcnt].color=val;
-                            else if(ind%4==2)Game::pls[Game::plcnt].x=val;
-                            else if(ind%4==3)Game::pls[Game::plcnt].y=val,Game::plcnt++;
-                            ind++,val=0;
-                        }else{
-                            val=val*10+str[i]-'0';
-                        }
-                    }
-                }else{
-                    std::string rec=str.substr(0,2);
-                    int val=0,tid=0;
-                    for(int i=3;i<len;i++){
-                        if(str[i]==';'){
-                            tid=val;
-                            break;
-                        }
-                        else{
-                            val=val*10+str[i]-'0';
-                        }
-                    }
-                    Game::Player &tpl=Game::pls[0];
-                    for(auto &pl:Game::pls){
-                        if(pl.id==tid){tpl=pl;break;}
-                    }
-                    Game::delPlayer(tpl),drawAt(tpl.x,tpl.y);
-                    if(rec=="up")tpl.x--;
-                    if(rec=="dn")tpl.x++;
-                    if(rec=="lf")tpl.y--;
-                    if(rec=="rt")tpl.y++;
-                    Game::putPlayer(tpl),drawAt(tpl.x,tpl.y);
+                    tmp+=str[i];
                 }
             }
         });
@@ -371,22 +424,23 @@ namespace Client{
 
     void startClient(std::string ipAddress=""){
         win_control::cls();
-        memset(Game::gmap,0,sizeof(Game::gmap));
 
         if(ipAddress==""){
             std::cout<<"Input your fucking ipaddress: ";
             std::cin >> ipAddress;
         }
+        memset(Game::gmap,0,sizeof(Game::gmap));
         drawMap();
         connect(ipAddress);
     }
+
 }
 void win_control::sendQuitMessage(){
     // std::cout<<"FYCK\n";
     if(mode==1){
-        Server::sendToAll("shutdown");
+        Server::sendToAll("shutdown;");
     }else if(mode==2){
-        sendMessage(Client::sock,"quit");
+        sendMessage(Client::sock,"quit;");
     }else{
 
     }
@@ -395,19 +449,22 @@ void win_control::sendQuitMessage(){
 }
 namespace key_handling{
     void up(){
-        sendMessage(Client::sock,"up");
+        sendMessage(Client::sock,"up;");
     }
     void dn(){
-        sendMessage(Client::sock,"dn");
+        sendMessage(Client::sock,"dn;");
     }
     void lf(){
-        sendMessage(Client::sock,"lf");
+        sendMessage(Client::sock,"lf;");
     }
     void rt(){
-        sendMessage(Client::sock,"rt");
+        sendMessage(Client::sock,"rt;");
     }
     void esc(){
         win_control::sendQuitMessage();
+    }
+    void refresh(){
+        Client::drawMap();
     }
 }
 
@@ -428,6 +485,10 @@ void win_control::input_record::keyHandler(int keyCode){
         }
         case 'D':{
             key_handling::rt();
+            break;
+        }
+        case 'R':{
+            key_handling::refresh();
             break;
         }
         case VK_ESCAPE:{
