@@ -7,6 +7,9 @@
 #include"asio.hpp"
 #include"wincontrol.hpp"
 
+const std::string version="0.0.2";
+
+
 void win_control::cls()
 {
     win_control::setColor(win_control::Color::c_BLACK,win_control::Color::c_BLACK);
@@ -61,7 +64,7 @@ namespace Server{
 
     bool colorVis[20];
 
-    int clientId;
+    int clientId,clientConnected;
     
     void sendToAll(const std::string &msg,int ex=0){
         if(clients.empty())return;
@@ -110,10 +113,12 @@ namespace Server{
         try{
         acp=std::thread([&]()->void{
             for(;gameRunning;){
-                if(clients.size()<MAXCLIENT){
+
+                if(clientConnected<MAXCLIENT){
                     srand(time(0));
                     Clnt *cl=new Clnt();
                     cl->sock=ac.accept(),cl->id=++clientId;
+                    clientConnected++;
                     for(int i=1;i<=MAXCLIENT;i++)if(!colorVis[i]){
                         cl->color=i,colorVis[i]=true;break;
                     }
@@ -130,6 +135,7 @@ namespace Server{
                     std::cout<<"SB "<<cl->id<<": "<<cl->color<<std::endl;
                     clients.push_back(std::move(cl));
                     sendToAll("join;"+info_to_string(cl),cl->id);
+                    std::cout<<"Send to SB "<<cl->id<<" "<<"idcl;"+std::to_string(cl->id)+";"+std::to_string(cl->color)+";"<<std::endl;
                     sendMessage(cl->sock,"idcl;"+std::to_string(cl->id)+";"+std::to_string(cl->color)+";");
                     
                     std::string usersInfo="uinf;";
@@ -144,6 +150,7 @@ namespace Server{
                         std::array<char, 65536> buf;
                         asio::error_code err;
                         size_t len;
+                        bool versed=false;
                         for(;gameRunning;){
 
                             // std::cout<<"SB "<<cl->id<<": "<<cl->color<<std::endl;
@@ -154,12 +161,58 @@ namespace Server{
 
                             auto solveCmd=([&](std::string ss)->bool{
                                 if(ss=="")return true;
+                                if(ss.substr(0,4)=="vers"){
+                                    versed=true;
+                                    std::string vers=ss.substr(5);
+                                    if(vers!=(version+";")){
+                                        
+                                        std::cout<<"SB "<<cl->id<<"'s version is "<<vers<<", not "<<version<<std::endl;
+
+                                        sendMessage(cl->sock,"wrvr;");
+                                        cl->sock.close();
+                                        cl->closed=true;
+                                        colorVis[cl->color]=false;
+
+                                        clientConnected--;
+
+                                        Game::delPlayer(cl);
+
+                                        sendToAll("quit;"+std::to_string(cl->id)+";");
+                                        return false;
+
+                                    }
+                                    return true;
+                                }
+                                if(!versed){
+                                    sendMessage(cl->sock,"wrvr;");
+                                    cl->sock.close();
+                                    cl->closed=true;
+                                    colorVis[cl->color]=false;
+
+                                    clientConnected--;
+
+                                    Game::delPlayer(cl);
+
+                                    sendToAll("quit;"+std::to_string(cl->id)+";");
+                                    return false;
+                                }
+                                if(ss=="regt;"){
+                                    std::string usersInfo="uinf;";
+                                    for(auto &cln:clients){
+                                        if(cln->closed)continue;
+                                        usersInfo+=info_to_string(cln);
+                                    }
+                                    sendMessage(cl->sock,usersInfo);
+                                    return true;
+                                }
                                 if(ss=="quit;"){
                                     std::cout<<"SB "<<cl->id<<" is leaving\n";
                                     // while(1);
                                     cl->sock.close();
                                     cl->closed=true;
                                     colorVis[cl->color]=false;
+
+                                    clientConnected--;
 
                                     //del player from the map
                                     Game::delPlayer(cl);
@@ -208,7 +261,7 @@ namespace Server{
                 }
                 else{
                     disp_sock=ac.accept();
-                    sendMessage(disp_sock,"full");
+                    sendMessage(disp_sock,"full;");
                     disp_sock.close();
                 }
             }
@@ -252,6 +305,9 @@ namespace Client{
                 std::putchar(' '),std::putchar(' ');
 
             }
+            win_control::setColor(colors[color],colors[color]);
+            std::putchar(' ');
+            // std::cout<<color;
             // if(i!=39)std::cout<<std::endl;
         }
         painting=false;
@@ -297,6 +353,22 @@ namespace Client{
                     // win_control::goxy(20,90);
                     // std::cout<<ss<<"sfhaiud\naiosdj";
                     if(ss=="")return;
+                    if(ss=="full;"){
+                        win_control::cls();
+                        sock.close();
+                        std::cout<<"Server is full\n";
+                        win_control::sleep(1000);
+                        gameRunning=false;
+                        exit(0);
+                    }
+                    if(ss=="wrvr;"){
+                        win_control::cls();
+                        sock.close();
+                        std::cout<<"Wrong version. Please check your version whether it's right\n";
+                        win_control::sleep(1000);
+                        gameRunning=false;
+                        exit(0);
+                    }
                     if(ss=="shutdown;"){
                         win_control::cls();
                         sock.close();
@@ -337,9 +409,16 @@ namespace Client{
                                 val=val*10+ss[i]-'0';
                             }
                         }
+                        win_control::goxy(20,90);
+                        win_control::setColor(win_control::Color::c_WHITE,win_control::Color::c_BLACK);
+                        // std::cout<<id<<" "<<color;
+                        drawMap();
                     }else if(ss.substr(0,4)=="uinf"){
                         // std::cout<<ss<<std::endl;
-                        int ind=0,val=0;Game::plcnt=1;
+                        memset(Game::gmap,0,sizeof(Game::gmap));
+                        memset(Game::pls,0,sizeof(Game::pls));
+                        Game::plcnt=1;
+                        int ind=0,val=0;
                         for(int i=5;i<len;i++){
                             if(ss[i]==';'){
                                 if(ind%4==0)Game::pls[Game::plcnt].id=val;
@@ -418,6 +497,7 @@ namespace Client{
             }
         });
         recv.detach();
+        sendMessage(sock,"vers;"+version+";");
         // win_control::cls();
         // std::cout<<"Connected\n";
     }
@@ -464,6 +544,7 @@ namespace key_handling{
         win_control::sendQuitMessage();
     }
     void refresh(){
+        sendMessage(Client::sock,"regt;");
         Client::drawMap();
     }
 }

@@ -22,7 +22,7 @@ namespace win_control{
     }
     void consoleInit()
     {
-        system("mode con cols=81 lines=40");
+        system("mode con cols=82 lines=40");
         SetConsoleCP(65001);
         SetConsoleTitle(L"Realtime Network Demo");
         hideCursor();
