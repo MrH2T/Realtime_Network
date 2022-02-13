@@ -7,8 +7,9 @@
 #include"asio.hpp"
 #include"wincontrol.hpp"
 
-const std::string version="0.0.3";
-const int gameTick = 50;
+const std::string version="0.0.4";
+const int gameTick = 10;
+int tick=0;
 
 void win_control::cls()
 {
@@ -275,6 +276,12 @@ namespace Server{
 namespace Client{
     bool painting;
     namespace Game{
+        struct Bullet{
+            int x,y,color,dist,tow;//0u 1d 2l 3r
+            bool no;
+            Bullet():x(0),y(0),color(0),dist(0),tow(0),no(false){}
+        };
+        std::vector<Bullet> bults;
         struct Player{
             int x,y,id,color;
             bool quit;
@@ -319,6 +326,17 @@ namespace Client{
         win_control::goxy(x,2*y);
         win_control::setColor(colors[Game::gmap[x][y]],colors[Game::gmap[x][y]]);
         std::putchar(' '),std::putchar(' ');
+        painting=false;
+    }
+
+    void drawBullets(){
+        while(painting);
+        painting=true;
+        if(Game::bults.empty())return void(painting=false);
+        for(auto &bul:Game::bults){
+
+        }
+
         painting=false;
     }
 
@@ -513,7 +531,7 @@ namespace Client{
         drawMap();
         connect(ipAddress);
     }
-
+    
 }
 void win_control::sendQuitMessage(){
     // std::cout<<"FYCK\n";
@@ -635,15 +653,16 @@ int main(){
         }
     });
 
-    int ticks=0;
+    int lastMoveTick=-2,lastDrawTick=-2;
 
     while(gameRunning){
-        if(key_handling::onPress['W'])sendMessage(Client::sock,"up;");
-        if(key_handling::onPress['S'])sendMessage(Client::sock,"dn;");
-        if(key_handling::onPress['A'])sendMessage(Client::sock,"lf;");
-        if(key_handling::onPress['D'])sendMessage(Client::sock,"rt;");
-        
-        ticks++;
+        if(key_handling::onPress['W']&&tick-lastMoveTick>=6){lastMoveTick=tick,sendMessage(Client::sock,"up;");}
+        if(key_handling::onPress['S']&&tick-lastMoveTick>=6){lastMoveTick=tick,sendMessage(Client::sock,"dn;");}
+        if(key_handling::onPress['A']&&tick-lastMoveTick>=6){lastMoveTick=tick,sendMessage(Client::sock,"lf;");}
+        if(key_handling::onPress['D']&&tick-lastMoveTick>=6){lastMoveTick=tick,sendMessage(Client::sock,"rt;");}
+
+        if(tick-lastDrawTick>=3)lastDrawTick=tick,Client::drawBullets();
+        tick++;
         win_control::sleep(gameTick);
     }
     gameRunning=false;
