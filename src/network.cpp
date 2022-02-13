@@ -2,6 +2,7 @@
 #include<vector>
 #include<thread>
 #include<array>
+#include<time.h>
 #include<utility>
 #include"asio.hpp"
 #include"wincontrol.hpp"
@@ -21,7 +22,7 @@ const int PORT =11451, WIDTH = 40, HEIGHT = 40, MAXCLIENT = 10;
 volatile bool gameRunning;
 int mode;
 win_control::Color colors[]={
-    win_control::Color::c_DGREY,
+    win_control::Color::c_WHITE,
     win_control::Color::c_RED,
     win_control::Color::c_DARKBLUE,
     win_control::Color::c_LYELLOW,
@@ -80,12 +81,27 @@ namespace Server{
         bool beOutOfBound(int x,int y){
             return x<0||y<0||x>=WIDTH||y>=HEIGHT;
         }
-    }
-    bool checkLegal(){
-        return true;
+        bool checkLegal(int x,int y){
+            std::cout<<x<<" "<<y<<std::endl;
+            if(beOutOfBound(x,y))return false;
+            if(gmap[x][y])return false;
+            return true;
+        }
+        void delPlayer(Clnt* cl){
+            gmap[cl->x][cl->y]=0;
+        }
+        void putPlayer(Clnt* cl){
+            gmap[cl->x][cl->y]=cl->id;
+        }
     }
 
+    std::string info_to_string(Clnt *cl){
+        return std::to_string(cl->id)+";"+std::to_string(cl->color)+";"+std::to_string(cl->x)+";"+std::to_string(cl->y)+";";
+    }
+
+
     void startServer(){
+        memset(Game::gmap,0,sizeof(Game::gmap));
         clientId=0;
         try{
         ac=asio::ip::tcp::acceptor(ioc,asio::ip::tcp::endpoint(asio::ip::tcp::v4(), PORT));
@@ -94,24 +110,35 @@ namespace Server{
         acp=std::thread([&]()->void{
             for(;gameRunning;){
                 if(clients.size()<MAXCLIENT){
+                    srand(time(0));
                     Clnt *cl=new Clnt();
                     cl->sock=ac.accept(),cl->id=++clientId;
                     for(int i=1;i<=MAXCLIENT;i++)if(!colorVis[i]){
                         cl->color=i,colorVis[i]=true;break;
                     }
                     int x=rand()%40,y=rand()%40;
+
+                    // x=1,y=1;
                     while(Game::gmap[x][y])x=rand()%40,y=rand()%40;
                     cl->x=x,cl->y=y;
+                    std::cout<<"Summon SB "<<cl->id <<" at "<<x<<","<<y<<std::endl;
+
+                    //put player on the map
+                    Game::putPlayer(cl);
 
                     std::cout<<"SB "<<cl->id<<": "<<cl->color<<std::endl;
                     clients.push_back(std::move(cl));
-                    sendToAll("join;"+std::to_string(cl->id)+";"+std::to_string(cl->color)+";",cl->id);
-                    sendMessage(cl->sock,"info;"+std::to_string(cl->id)+";"+std::to_string(cl->color)+";"+std::to_string(cl->x)+";"+std::to_string(cl->y)+";");
+                    sendToAll("join;"+info_to_string(cl),cl->id);
+                    sendMessage(cl->sock,"idcl;"+std::to_string(cl->id)+";"+std::to_string(cl->color)+";");
                     
                     std::string usersInfo="uinf;";
-                    for()
+                    for(auto &cln:clients){
+                        usersInfo+=info_to_string(cln);
+                    }
+                    sendMessage(cl->sock,usersInfo);
 
                     std::thread recv=std::thread([cl]()->void{
+                        
                         std::array<char, 65536> buf;
                         asio::error_code err;
                         size_t len;
@@ -120,32 +147,42 @@ namespace Server{
                             // std::cout<<"SB "<<cl->id<<": "<<cl->color<<std::endl;
                             // while(1);
                             len = cl->sock.read_some(asio::buffer(buf), err);
-                            if(std::string(buf.data())=="quit"){
+                            std::string str(buf.data());str.resize(len);
+                            std::cout<<"SB "<<cl->id<<" send "<<str<<std::endl;
+                            if(str=="quit"){
                                 std::cout<<"SB "<<cl->id<<" is leaving\n";
                                 cl->sock.close();
                                 cl->closed=true;
                                 colorVis[cl->color]=false;
+
+                                //del player from the map
+                                Game::delPlayer(cl);
                                 
                                 sendToAll("quit;"+std::to_string(cl->id)+";");
                                 
                                 return;
                             }
                             else{
-                                std::string rec=std::string(buf.data()).substr(0,2);
-                                if(rec=="up"){
+                                std::string rec=str.substr(0,2);
+                                bool ok=true;
+                                int nx=cl->x,ny=cl->y,tx=nx,ty=ny;
+                                if(rec=="up"){tx--;if(!Game::checkLegal(nx-1,ny))ok=false;}
+                                else if(rec=="dn"){tx++;if(!Game::checkLegal(nx+1,ny))ok=false;}
+                                else if(rec=="lf"){ty--;if(!Game::checkLegal(nx,ny-1))ok=false;}
+                                else if(rec=="rt"){ty++;if(!Game::checkLegal(nx,ny+1))ok=false;}
+                                if(ok){
+                                    std::cout<<"SB HAHA "<<nx<<" "<<ny<<";"<<tx<<" "<<ty<<std::endl;
+                                    //move player
+                                    Game::delPlayer(cl);
+                                    cl->x=tx,cl->y=ty;
+                                    Game::putPlayer(cl);
 
-                                }else if(rec=="dn"){
-
-                                }else if(rec=="lf"){
-
-                                }else if(rec=="rt"){
-
+                                    sendToAll(str+";"+std::to_string(cl->id)+";");
                                 }
-                                sendToAll(std::string(buf.data()));
                             }
                         }
                     });
-                    recv.detach();//?
+                    recv.detach();//? i dont know
 
                     std::cout<<"SB "<<cl->id<<" is coming\n";
                 }
@@ -158,7 +195,7 @@ namespace Server{
         });
         // acp.detach();
         win_control::cls();
-        std::cout<<"Hey SB, I'm Listening!\n";
+        std::cout<<"Hi SB, I'm Listening!\n";
         }catch(...){std::cout<<"FUCK";}
     }
 }
@@ -167,22 +204,52 @@ namespace Client{
     namespace Game{
         struct Player{
             int x,y,id,color;
-            Player():x(0),y(0){}
-        }pls[100];
-        int gmap[45][45];
-        bool beOutOfBound(int x,int y){
-            return x<0||y<0||x>=WIDTH||y>=HEIGHT;
+            bool quit;
+            Player():x(0),y(0),id(0),color(0),quit(false){}
+        }pls[128];
+        int gmap[45][45],plcnt=0;
+        void delPlayer(Player pl){
+            gmap[pl.x][pl.y]=0;
+        }
+        void putPlayer(Player pl){
+            gmap[pl.x][pl.y]=pl.color;
         }
     }
-    int x,y,id,color;
+    int id,color;
     asio::ip::tcp::socket sock(ioc);
     std::thread recv;
+
+    void drawMap(){
+        while(painting);
+        painting=true;
+        win_control::goxy(0,0);
+        for(int i=0;i<40;i++){
+            // win_control::goxy(i,0);
+            for(int j=0;j<40;j++){
+                win_control::setColor(colors[Game::gmap[i][j]],colors[Game::gmap[i][j]]);
+                std::cout<<"  ";
+            }
+            std::cout<<std::endl;
+        }
+        painting=false;
+    }
+
+    void drawAt(int x,int y){
+        while(painting);
+        painting=true;
+        win_control::goxy(x,2*y);
+        win_control::setColor(colors[Game::gmap[x][y]],colors[Game::gmap[x][y]]);
+        std::cout<<"  ";
+        painting=false;
+    }
 
     void connect(std::string ipaddr){
         try{
             
             asio::connect(sock,asio::ip::tcp::resolver(ioc).resolve(ipaddr,std::to_string(PORT)));
             // asio::steady_timer timer(ioc);timer.expires_from_now();
+        
+            // i want to check if the connection time is out, but it's a bit complex. I'll fix it later.
         }catch(...){
             win_control::cls();
             std::cout<<"Connection Error!\n";
@@ -196,7 +263,8 @@ namespace Client{
             size_t len;
             for(;gameRunning;){
                 len=sock.read_some(asio::buffer(buf),err);
-                if(std::string(buf.data())=="shutdown"){
+                std::string str=std::string(buf.data());str.resize(len);
+                if(str=="shutdown"){
                     win_control::cls();
                     sock.close();
                     std::cout<<"Server Shutdown\n";
@@ -204,29 +272,112 @@ namespace Client{
                     gameRunning=false;
                     exit(0);
                 }
-                else if(std::string(buf.data()).substr(0,4)=="quit"){
+                else if(str.substr(0,4)=="quit"){
+                    int val=0,tid=0;
+                    for(int i=5;i<len;i++){
+                        if(str[i]==';'){
+                            tid=val;
+                            break;
+                        }else{
+                            val=val*10+str[i]-'0';
+                        }
+                    }
+                    for(auto &pl:Game::pls){
+                        if(pl.id==tid){
 
-                }else if(std::string(buf.data()).substr(0,4)=="info"){
-                    
-                }else if(std::string(buf.data()).substr(0,4)=="uinf"){
+                            //del the player from the map
+                            Game::delPlayer(pl);
+                            pl.quit=true;
 
+                            break;
+                        }
+                    }
+                }else if(str.substr(0,4)=="idcl"){
+                    int val=0,ind=0;
+                    for(int i=5;i<len;i++){
+                        if(str[i]==';'){
+                            if(ind==0)id=val;
+                            else if(ind==1)color=val;
+                            val=0,ind++;
+                        }else{
+                            val=val*10+str[i]-'0';
+                        }
+                    }
+                }else if(str.substr(0,4)=="uinf"){
+                    std::cout<<str<<std::endl;
+                    int ind=0,val=0;Game::plcnt=1;
+                    for(int i=5;i<len;i++){
+                        if(str[i]==';'){
+                            if(ind%4==0)Game::pls[Game::plcnt].id=val;
+                            else if(ind%4==1)Game::pls[Game::plcnt].color=val;
+                            else if(ind%4==2)Game::pls[Game::plcnt].x=val;
+                            else if(ind%4==3){
+                                Game::pls[Game::plcnt].y=val;
+                                
+                                //put the player on the map
+                                Game::putPlayer(Game::pls[Game::plcnt]);
+                                
+                                drawAt(Game::pls[Game::plcnt].x,Game::pls[Game::plcnt].y);
+
+                                Game::plcnt++;
+                            }
+                            ind++,val=0;
+                        }else{
+                            val=val*10+str[i]-'0';
+                        }
+                    }
+                }else if(str.substr(0,4)=="join"){
+                    int ind=0,val=0;
+                    for(int i=5;i<len;i++){
+                        if(str[i]==';'){
+                            if(ind%4==0)Game::pls[Game::plcnt].id=val;
+                            else if(ind%4==1)Game::pls[Game::plcnt].color=val;
+                            else if(ind%4==2)Game::pls[Game::plcnt].x=val;
+                            else if(ind%4==3)Game::pls[Game::plcnt].y=val,Game::plcnt++;
+                            ind++,val=0;
+                        }else{
+                            val=val*10+str[i]-'0';
+                        }
+                    }
                 }else{
-
+                    std::string rec=str.substr(0,2);
+                    int val=0,tid=0;
+                    for(int i=3;i<len;i++){
+                        if(str[i]==';'){
+                            tid=val;
+                            break;
+                        }
+                        else{
+                            val=val*10+str[i]-'0';
+                        }
+                    }
+                    Game::Player &tpl=Game::pls[0];
+                    for(auto &pl:Game::pls){
+                        if(pl.id==tid){tpl=pl;break;}
+                    }
+                    Game::delPlayer(tpl),drawAt(tpl.x,tpl.y);
+                    if(rec=="up")tpl.x--;
+                    if(rec=="dn")tpl.x++;
+                    if(rec=="lf")tpl.y--;
+                    if(rec=="rt")tpl.y++;
+                    Game::putPlayer(tpl),drawAt(tpl.x,tpl.y);
                 }
             }
         });
         recv.detach();
-        win_control::cls();
-        std::cout<<"Connected\n";
+        // win_control::cls();
+        // std::cout<<"Connected\n";
     }
 
     void startClient(std::string ipAddress=""){
         win_control::cls();
+        memset(Game::gmap,0,sizeof(Game::gmap));
 
         if(ipAddress==""){
             std::cout<<"Input your fucking ipaddress: ";
             std::cin >> ipAddress;
         }
+        drawMap();
         connect(ipAddress);
     }
 }
@@ -239,20 +390,21 @@ void win_control::sendQuitMessage(){
     }else{
 
     }
+    Client::sock.close();
     gameRunning=false;
 }
 namespace key_handling{
     void up(){
-        sendMessage(Client::sock,"up;"+std::to_string(Client::id)+";");
+        sendMessage(Client::sock,"up");
     }
     void dn(){
-        sendMessage(Client::sock,"dn;"+std::to_string(Client::id)+";");
+        sendMessage(Client::sock,"dn");
     }
     void lf(){
-        sendMessage(Client::sock,"lf;"+std::to_string(Client::id)+";");
+        sendMessage(Client::sock,"lf");
     }
     void rt(){
-        sendMessage(Client::sock,"rt;"+std::to_string(Client::id)+";");
+        sendMessage(Client::sock,"rt");
     }
     void esc(){
         win_control::sendQuitMessage();
