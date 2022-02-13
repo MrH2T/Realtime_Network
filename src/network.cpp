@@ -332,7 +332,7 @@ namespace Client{
         }catch(...){
             win_control::cls();
             std::cout<<"Connection Error!\n";
-            win_control::sleep(1000);
+            win_control::sleep(2000);
             exit(0);
         }
         recv=std::thread([&]()->void{
@@ -357,7 +357,7 @@ namespace Client{
                         win_control::cls();
                         sock.close();
                         std::cout<<"Server is full\n";
-                        win_control::sleep(1000);
+                        win_control::sleep(2000);
                         gameRunning=false;
                         exit(0);
                     }
@@ -365,7 +365,7 @@ namespace Client{
                         win_control::cls();
                         sock.close();
                         std::cout<<"Wrong version. Please check your version whether it's right\n";
-                        win_control::sleep(1000);
+                        win_control::sleep(2000);
                         gameRunning=false;
                         exit(0);
                     }
@@ -373,7 +373,7 @@ namespace Client{
                         win_control::cls();
                         sock.close();
                         std::cout<<"Server Shutdown\n";
-                        win_control::sleep(1000);
+                        win_control::sleep(2000);
                         gameRunning=false;
                         exit(0);
                     }
