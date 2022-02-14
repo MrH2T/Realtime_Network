@@ -42,6 +42,7 @@ namespace win_control{
 	void setTitle(const wchar_t*);
     void setCtrlHandler();
     void sendQuitMessage();
+	void beep();
     namespace input_record
 	{
 		void keyDownHandler(int);

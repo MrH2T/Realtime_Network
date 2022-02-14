@@ -70,7 +70,9 @@ namespace win_control{
             return FALSE;
         }
     }
-
+    void beep(){
+        Beep(700,100);
+    }
     namespace input_record
     {
         CONSOLE_SCREEN_BUFFER_INFO bInfo;

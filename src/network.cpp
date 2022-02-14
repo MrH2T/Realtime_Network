@@ -7,8 +7,8 @@
 #include"asio.hpp"
 #include"wincontrol.hpp"
 
-const std::string version="0.0.4";
-const int gameTick = 10;
+const std::string version="0.0.6";
+const int gameTick = 10 , MAX_BULLET_DIST = 10;
 int tick=0;
 
 void win_control::cls()
@@ -30,13 +30,13 @@ win_control::Color colors[]={
     win_control::Color::c_WHITE,
     win_control::Color::c_RED,
     win_control::Color::c_DARKBLUE,
-    win_control::Color::c_LYELLOW,
     win_control::Color::c_DGREEN,
     win_control::Color::c_LIME,
     win_control::Color::c_SKYBLUE,
     win_control::Color::c_LIGHTBLUE,
     win_control::Color::c_DPURPLE,
     win_control::Color::c_PURPLE,
+    win_control::Color::c_YELLOW,
     win_control::Color::c_DRED,
 };
 asio::io_context ioc;
@@ -206,6 +206,22 @@ namespace Server{
                                     sendMessage(cl->sock,usersInfo);
                                     return true;
                                 }
+                                if(ss.substr(0,4)=="shot"){
+                                    int x,y,tow,val=0,ind=0,len=ss.length();
+                                    for(int i=5;i<len;i++){
+                                        if(ss[i]==';'){
+                                            if(ind==0)x=val;
+                                            if(ind==1)y=val;
+                                            if(ind==2)tow=val;
+                                            val=0,ind++;
+                                        }else val=val*10+ss[i]-'0';
+                                    }
+                                    if(Game::beOutOfBound(x,y))return true;
+                                    else {
+                                        sendToAll("shot;"+std::to_string(cl->id)+ss.substr(4));
+                                    }
+                                    return true;
+                                }
                                 if(ss=="quit;"){
                                     std::cout<<"SB "<<cl->id<<" is leaving\n";
                                     // while(1);
@@ -280,7 +296,11 @@ namespace Client{
             int x,y,color,dist,tow;//0u 1d 2l 3r
             bool no;
             Bullet():x(0),y(0),color(0),dist(0),tow(0),no(false){}
+            Bullet(int x_,int y_,int c_,int d_,int t_,int n_):x(x_),y(y_),color(c_),dist(d_),tow(t_),no(n_){}
         };
+        bool beOutOfBound(int x,int y){
+            return x<0||y<0||x>=WIDTH||y>=HEIGHT;
+        }
         std::vector<Bullet> bults;
         struct Player{
             int x,y,id,color;
@@ -294,6 +314,13 @@ namespace Client{
         void putPlayer(Player pl){
             gmap[pl.x][pl.y]=pl.color;
         }
+    }
+
+    Game::Player* findPlayer(int id){
+        for(auto &pl:Game::pls){
+            if(pl.id==id)return &pl;
+        }
+        return NULL;
     }
     int id,color;
     asio::ip::tcp::socket sock(ioc);
@@ -328,18 +355,62 @@ namespace Client{
         std::putchar(' '),std::putchar(' ');
         painting=false;
     }
+    void updateBullet(Game::Bullet &bl){
+        if(Game::gmap[bl.x][bl.y]&&Game::gmap[bl.x][bl.y]!=bl.color){
+            std::thread bep([]()->void{win_control::beep();});
+            bep.detach();
+            bl.no=true;
+            return;
+        }
+        if(bl.tow==0)bl.x--;
+        if(bl.tow==1)bl.x++;
+        if(bl.tow==2)bl.y--;
+        if(bl.tow==3)bl.y++;
+        bl.dist++;
 
-    void drawBullets(){
+        if(bl.dist>MAX_BULLET_DIST|| Game::beOutOfBound(bl.x,bl.y))bl.no=true;
+        if(Game::gmap[bl.x][bl.y]&&Game::gmap[bl.x][bl.y]!=bl.color){
+            std::thread bep([]()->void{win_control::beep();});
+            bep.detach();
+            bl.no=true;
+            return;
+        }
+    }
+    void drawABullet(Game::Bullet &bl){
         while(painting);
         painting=true;
-        if(Game::bults.empty())return void(painting=false);
-        for(auto &bul:Game::bults){
-
-        }
-
+        win_control::goxy(bl.x,2*bl.y);
+        win_control::setColor(colors[bl.color],win_control::Color::c_WHITE);
+        if(bl.tow==0)putchar('^'),putchar('^');
+        if(bl.tow==1)putchar('v'),putchar('v');
+        if(bl.tow==2)putchar('<'),putchar('<');
+        if(bl.tow==3)putchar('>'),putchar('>');
         painting=false;
     }
+    void drawBullets(){
 
+        if(Game::bults.empty())return ;
+        // win_control::cls();
+        for(auto &bul:Game::bults){
+            if(bul.no)continue;
+            if(!Game::gmap[bul.x][bul.y])drawAt(bul.x,bul.y);
+            updateBullet(bul);
+            // win_control::cls();
+            if(!bul.no){
+                drawABullet(bul);
+            }
+        }
+    }
+    void shoot(int tow){
+        int sx,sy;
+        auto me=*findPlayer(id);
+        sx=me.x,sy=me.y;
+        if(tow==0)sx--;
+        if(tow==1)sx++;
+        if(tow==2)sy--;
+        if(tow==3)sy++;
+        sendMessage(sock,"shot;"+std::to_string(sx)+";"+std::to_string(sy)+";"+std::to_string(tow)+";");
+    }
     void connect(std::string ipaddr){
         try{
             
@@ -394,6 +465,22 @@ namespace Client{
                         win_control::sleep(2000);
                         gameRunning=false;
                         exit(0);
+                    }
+                    if(ss.substr(0,4)=="shot"){
+                        int idd,x,y,tow,val=0,ind=0;
+                        for(int i=5;i<len;i++){
+                            if(ss[i]==';'){
+                                if(ind==0)idd=val;
+                                if(ind==1)x=val;
+                                if(ind==2)y=val;
+                                if(ind==3)tow=val;
+                                val=0,ind++;
+                            }else val=val*10+ss[i]-'0';
+                        }
+                        int col=findPlayer(idd)->color;
+                        Game::Bullet nb=Game::Bullet(x,y,col,0,tow,0);
+                        Game::bults.push_back(nb);
+                        if(!Game::gmap[x][y])drawABullet(nb);
                     }
                     else if(ss.substr(0,4)=="quit"){
                         int val=0,tid=0;
@@ -546,31 +633,7 @@ void win_control::sendQuitMessage(){
     gameRunning=false;
 }
 namespace key_handling{
-    bool onPress[128];
-    void dup(){
-        onPress['W']=1;
-    }
-    void uup(){
-        onPress['W']=0;
-    }
-    void ddn(){
-        onPress['S']=1;
-    }
-    void udn(){
-        onPress['S']=0;
-    }
-    void dlf(){
-        onPress['A']=1;
-    }
-    void ulf(){
-        onPress['A']=0;
-    }
-    void drt(){
-        onPress['D']=1;
-    }
-    void urt(){
-        onPress['D']=0;
-    }
+    bool onPress[256];
     void esc(){
         win_control::sendQuitMessage();
     }
@@ -584,23 +647,43 @@ void win_control::input_record::keyDownHandler(int keyCode){
     if(mode==1)return;
     switch(keyCode){
         case 'W':{
-            key_handling::dup();
-            key_handling::udn();
+            key_handling::onPress['W']=true;
+            key_handling::onPress['S']=false;
             break;
         }
         case 'S':{
-            key_handling::ddn();
-            key_handling::uup();
+            key_handling::onPress['S']=true;
+            key_handling::onPress['W']=false;
             break;
         }
         case 'A':{
-            key_handling::dlf();
-            key_handling::urt();
+            key_handling::onPress['A']=true;
+            key_handling::onPress['D']=false;
             break;
         }
         case 'D':{
-            key_handling::drt();
-            key_handling::ulf();
+            key_handling::onPress['D']=true;
+            key_handling::onPress['A']=false;
+            break;
+        }
+        case VK_UP:{
+            key_handling::onPress[VK_UP]=true;
+            key_handling::onPress[VK_DOWN]=false;
+            break;
+        }
+        case VK_DOWN:{
+            key_handling::onPress[VK_DOWN]=true;
+            key_handling::onPress[VK_UP]=false;
+            break;
+        }
+        case VK_LEFT:{
+            key_handling::onPress[VK_LEFT]=true;
+            key_handling::onPress[VK_RIGHT]=false;
+            break;
+        }
+        case VK_RIGHT:{
+            key_handling::onPress[VK_RIGHT]=true;
+            key_handling::onPress[VK_LEFT]=false;
             break;
         }
         case 'R':{
@@ -618,21 +701,38 @@ void win_control::input_record::keyUpHandler(int keyCode){
     if(mode==1)return;
     switch(keyCode){
         case 'W':{
-            key_handling::uup();
+            key_handling::onPress['W']=false;
             break;
         }
         case 'S':{
-            key_handling::udn();
+            key_handling::onPress['S']=false;
             break;
         }
         case 'A':{
-            key_handling::ulf();
+            key_handling::onPress['A']=false;
             break;
         }
         case 'D':{
-            key_handling::urt();
+            key_handling::onPress['D']=false;
             break;
         }
+        case VK_UP:{
+            key_handling::onPress[VK_UP]=false;
+            break;
+        }
+        case VK_DOWN:{
+            key_handling::onPress[VK_DOWN]=false;
+            break;
+        }
+        case VK_LEFT:{
+            key_handling::onPress[VK_LEFT]=false;
+            break;
+        }
+        case VK_RIGHT:{
+            key_handling::onPress[VK_RIGHT]=false;
+            break;
+        }
+        
         default:return;
     }
 }
@@ -653,7 +753,7 @@ int main(){
         }
     });
 
-    int lastMoveTick=-2,lastDrawTick=-2;
+    int lastMoveTick=-114514,lastDrawBulletTick=-114514,lastShootTick=-114514;
 
     while(gameRunning){
         if(key_handling::onPress['W']&&tick-lastMoveTick>=6){lastMoveTick=tick,sendMessage(Client::sock,"up;");}
@@ -661,7 +761,12 @@ int main(){
         if(key_handling::onPress['A']&&tick-lastMoveTick>=6){lastMoveTick=tick,sendMessage(Client::sock,"lf;");}
         if(key_handling::onPress['D']&&tick-lastMoveTick>=6){lastMoveTick=tick,sendMessage(Client::sock,"rt;");}
 
-        if(tick-lastDrawTick>=3)lastDrawTick=tick,Client::drawBullets();
+        if(key_handling::onPress[VK_UP]&&tick-lastShootTick>=20){lastShootTick=tick,Client::shoot(0);}
+        if(key_handling::onPress[VK_DOWN]&&tick-lastShootTick>=20){lastShootTick=tick,Client::shoot(1);}
+        if(key_handling::onPress[VK_LEFT]&&tick-lastShootTick>=20){lastShootTick=tick,Client::shoot(2);}
+        if(key_handling::onPress[VK_RIGHT]&&tick-lastShootTick>=20){lastShootTick=tick,Client::shoot(3);}
+
+        if(tick-lastDrawBulletTick>=3)lastDrawBulletTick=tick,Client::drawBullets();
         tick++;
         win_control::sleep(gameTick);
     }
